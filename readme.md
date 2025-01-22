@@ -229,4 +229,251 @@ In this screenshot you can see some of the properties that were mentioned earlie
 
 **Note**: Authentication, in the way that we are doing it for this assingment, can technically be done purely with sessions (no passport). You may notice ChatGPT suggesting the use of `req.session` to handle all the login/logout logic. Keep in mind, that this is a very manual approach and quickly becomes difficult to manage which is why we use libraries like passport which handle all the session management for us.
 
-### passport and passport-local
+### passport and passport-local (big picture)
+
+Passport's main job is to authenticate requests, and it does this using a design pattern called the **strategy pattern**. In simple terms, a strategy in Passport is like a module that handles a specific type of authentication. For example, one strategy might handle username and password authentication, while another works with Google logins. This modularity makes Passport flexible and adaptable to many authentication scenarios. For our assignment, we’ll use the `LocalStrategy`, which handles authentication using usernames and passwords.
+
+Once a user is authenticated, Passport integrates with `express-session` to manage their logged-in state. This process involves two key methods:
+
+- **`serializeUser`** specifies what part of the user’s data should be stored in the session. Typically, this would be a unique identifier like a user ID. In this assignment, since we’re using `username` as the identifier, it is stored in the session instead.
+- **`deserializeUser`** uses the data stored in the session to retrieve the full user object. For this assignment, we don’t need to fetch a full user object because `username` is all we need. This approach will evolve in future modules.
+
+**Note**: When working with Passport, you don’t need to interact directly with `req.session` to manage logged-in users. Passport uses `req.session` internally and provides the authenticated user as `req.user`. Passport also offers built-in methods to verify and clear sessions, which we’ll explore later.
+
+Now that we have a conceptual understanding of Passport and how it works with `express-session`, let’s build a login system and see how these concepts are implemented.
+
+## Implementing authentication with Passport
+
+To implement authentication, we need the following:
+
+- A place to store our user data.
+- A register view with a form.
+- A login view with a form.
+- A way to log the current user out.
+- A router to organize and manage the routes for serving the views and handling their submissions.
+
+Most of this does not require passport. Remember, all it does it authenticate an existing user, eveything else we do. If you want to skip user registration and go straight to integrating passport click [here](#adding-passport) or scroll down to the next sub-section. Dont worry if you dont have a way to create users, you can use the existing ones in `users.json`, this next sub-section just helps clarify how the registration process is handled, and how you can pass error messages back to the user if their passwords don't match or they are trying to use an existing username.  
+
+**Note**: These examples will contain no CSS and minimal HTML to keep the focus on authentication.
+
+### User registration and validation
+
+For this assignment, we’ll store user data in a plain-text JSON file located at `data/users.json`. An example of the file structure is shown below:
+
+```json
+[
+    {
+        "username": "bob",
+        "password": "builder123"
+    },
+    {
+        "username": "alice",
+        "password": "wonderland"
+    }
+]
+```
+
+Here, we have two existing users, `bob` and `alice`, along with their passwords. It is important to keep in mind, this setup is for educational purposes only. In a real-world application:
+
+- Users would be stored in a database.
+- Passwords would be securely hashed and salted, not stored in plain text.
+- Each user would have a unique, immutable (unchanging) ID.
+
+We'll explore these best practices in the next modules when we implement databases. For now, lets continue. 
+
+The next step is to setup our basic views to handle signing up and logging in. We will start basic by just setting up the routes for the views:
+
+```js
+// routes/user.js
+const express = require('express');
+const router = express.Router();
+
+router.get('/signup', (req, res) => {
+  res.render('signup');
+});
+
+module.exports = router;
+```
+
+We then can add this route to our express app:
+
+```js
+// app.js
+...
+const usersRouter = require('./routes/user');
+...
+app.use('/user', usersRouter);
+...
+```
+
+Now we need to make our views for these routes:
+
+```html
+<!-- views/signup.ejs -->
+<h1>Sign up</h1>
+<form action="/user/signup" method="POST">
+    <div>
+        <label for="username">Username:</label>
+        <input type="text" id="username" name="username" required>
+    </div>
+    <div>
+        <label for="password">Password:</label>
+        <input type="password" id="password" name="password" required>
+    </div>
+    <div>
+        <label for="confirm-password">Confirm password:</label>
+        <input type="password" id="confirm-password" name="confirm-password" required>
+    </div>
+    <button type="submit">Sign up</button>
+</form>
+<p>Already have an account? <a href="/user/login">Login</a></p>
+```
+
+At this point, we can navigate to our view but cant submit the form. This is because we are missing the POST route to handle the form submission.
+
+Let's start simple and build up our post route for sign up:
+
+```js
+// routes/user.js
+...
+router.post('/signup', (req, res) => {
+  // Extract the form data (using destructuring)
+  const { username, password, confirm_password } = req.body;
+  // To be continued...
+});
+...
+```
+
+In `app.js`, `app.use(express.urlencoded({ extended: false }));` is middleware provided by Express that parses incoming requests with `application/x-www-form-urlencoded` payloads (the default encoding for HTML forms). This middleware allows you to access form data using `req.body`. The `extended: false` flag means it uses query strings (default behaviour with submit on forms). These query strings are formed by creating simple key-value pairs using the `name` attribute from the input fields in the form.
+
+There are two checks we want to do before adding the users to our data store, we want to check if the passwords match and if the user exists in the data store. If either of these fail, we want the user to go back to the sign in page and see an error telling them what has gone wrong. Additionally, we dont want them to have to retype their username each time as it is frustrating for the user to do that. In order to achieve this, we need to make use of EJS variables and alter our signup view to include these messages.
+
+```js
+// routes/user.js
+...
+const fs = require('fs');
+const path = require('path');
+...
+router.post('/signup', (req, res) => {
+  // Extract the form data (using destructuring)
+  const { username, password, confirm_password } = req.body;
+  // Check if the passwords match
+  if(password != confirm_password) {
+    // Re-render signup. Include the username so they dont need to retype it and provide an error message.
+    res.render('signup', { username, message: "Passwords do not match!"});
+  }
+
+  // Check if the user exists in the data store
+  if(userExists(username)) {
+    // Re-render signup. We dont want to return username, since its invalid, so we just return a message
+    res.render('signup', { message: "User already exists!" });
+  }
+
+  // Add new user to data store
+  // To be continued...
+});
+
+function userExists(username) {
+  try {
+    const users = JSON.parse(fs.readFileSync(path.join(__dirname, '../data/users.json'), 'utf-8'));
+    return users.some(user => user.username === username);
+  } catch (error) {
+    console.error('Error reading or parsing users.json:', error);
+    return false;
+  }
+}
+...
+```
+
+Our two failure conditions are catered for and we send error messages back to the view to be shown to the user. We also make use of a helper function that checks our data store (`users.json`) and sees if a user exists with that username (this is meant to be unqiue). We access users.json by using the `fs` (file system) module and `path` (`__dirname` tells us where we are in the project so our relative pathing - `../` - works as intended).
+
+Before we add our user to the store, lets see how our `signup` view has changed to accomodate our error messages and username placeholders:
+
+```html ejs
+<!-- views/signup.ejs -->
+<h1>Sign up</h1>
+<form action="/user/signup" method="POST">
+    <div>
+        <label for="username">Username:</label>
+        <!-- Fetch the username if available -->
+        <input 
+            type="text" 
+            id="username" 
+            name="username" 
+            value="<%= locals.username || '' %>"  
+            required
+        >
+    </div>
+    <div>
+        <label for="password">Password:</label>
+        <input type="password" id="password" name="password" required>
+    </div>
+    <div>
+        <label for="confirm_password">Confirm password:</label>
+        <input type="password" id="confirm_password" name="confirm_password" required>
+    </div>
+    <button type="submit">Sign up</button>
+</form>
+<p>Already have an account? <a href="/user/login">Login</a></p>
+
+<!-- Showing error message if there is one -->
+<% if (locals.message) { %>
+    <div>
+        <span style="color: red;">Error: <%= message %></span>
+    </div>
+<% } %>
+```
+
+You'll notice we access the variables through `locals`, but never actually set `res.locals.username` or `res.locals.message` in our route. How does this happen?
+
+When you pass variables to `res.render`, Express automatically adds them to `res.locals`, making them available in your EJS template for the current request response cycle. In your template, if you access a variable via locals (e.g., `<%= locals.message %>`), it will safely return `undefined` if the variable was not set, without causing an error. 
+
+If you try to directly access `message` without passing it (not via locals), the template will throw an error because the variable doesn’t exist in that context This happens when we first render the signup view in our `/signup` get route. Technically, we could just pass empty values like this:
+
+```js
+// routes/user.js
+...
+router.get('/signup', (req, res) => {
+  res.render('signup', { username: '', message: '' });
+});
+```
+
+But this is a little messy and its useful to understand what `locals` can be used for. Now that we've seen how user error handling can be implemented with messages, its time to finish off this signup route and actually add our user to the data store. Once that is successful we want to redirect to `/users/login` so they can login with their new credentials - this is also where we will implement passport.
+
+```js
+// routes/user.js
+...
+router.post('/signup', (req, res) => {
+  ...
+  // Add new user to data store
+  if(addNewUser(username, password)) {
+    // If successful we redirect to login
+    res.redirect('/user/login')
+  }
+});
+
+function addNewUser(username, password) {
+  try {
+    const filePath = path.join(__dirname, '../data/users.json');
+    const users = JSON.parse(fs.readFileSync(filePath, 'utf-8')); // Read existing users
+    const newUser = { username, password }; // Create new user object
+    users.push(newUser); // Add new user to the array
+    fs.writeFileSync(filePath, JSON.stringify(users, null, 2), 'utf-8'); // Write updated users back to the file
+    console.log(`User ${username} added successfully.`);
+    return true;
+  } catch (error) {
+    console.error('Error adding new user:', error);
+    return false;
+  }
+}
+```
+
+Now we can register new users through `signup` and have them stored in `users.json`. It is important to note that all server-realed errors are just logged to the console. This unfortunatly leaves the user in the dark, ideally, we use `http-errors` to `createError(500)` and pass it to our error hanlding middleware - so they at least know something went wrong on the server. To do that would require adding more complexity to our route, and the focus here is just user registration and the required validation. We are simplifying the error handling in this demo to make our route logic as clear as possible.
+
+At this point, we are ready to integrate passport and log our users in.
+
+### Adding passport for login and logout
+
+
+
+

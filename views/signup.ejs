@@ -1,0 +1,31 @@
+<h1>Sign up</h1>
+<form action="/user/signup" method="POST">
+    <div>
+        <label for="username">Username:</label>
+        <!-- Fetch the entered username if returning from a failed signup -->
+        <input 
+            type="text" 
+            id="username" 
+            name="username" 
+            value="<%= locals.username || '' %>"  
+            required
+        >
+    </div>
+    <div>
+        <label for="password">Password:</label>
+        <input type="password" id="password" name="password" required>
+    </div>
+    <div>
+        <label for="confirm_password">Confirm password:</label>
+        <input type="password" id="confirm_password" name="confirm_password" required>
+    </div>
+    <button type="submit">Sign up</button>
+</form>
+<p>Already have an account? <a href="/user/login">Login</a></p>
+
+<!-- Showing error message if there is one -->
+<% if (locals.message) { %>
+    <div>
+        <span style="color: red;">Error: <%= message %></span>
+    </div>
+<% } %>
