@@ -85,7 +85,7 @@ To do what we need to do for this project we need the following dependencies ins
 npm i passport passport-local express-session connect-ensure-login
 ```
 
-These packages work together to enable our session-based security approach. It's important to note that the implementation in this assignment is very basic (plain text passwords, no databases) and could technically be accomplished without Passport. However, as applications grow in complexity and edge cases arise, a library like Passport becomes invaluable for managing authentication efficiently and securely.
+These packages work together to enable our session-based security approach.
 
 **Note**: If time permits, I will create another repository demonstrating this authentication approach without additional dependencies (or possibly just using `express-session`). Seeing authentication stripped down to its bare bones, purely for educational purposes, can help clarify the core concepts.
 
@@ -178,8 +178,6 @@ When we refresh the page a few times, the counter increases:
 
 ![Sesh refresh](./screenshots/sesh-refresh.png)
 
-We can see the counter going up:
-
 ![Session-10](./screenshots/session-10.png)
 
 This shows that the server keeps track of the session, incrementing the count for each request tied to the same session.
@@ -229,6 +227,6 @@ Expand this and look for the cookies on our domain (`localhost`). There you will
 
 In this screenshot you can see some of the properties that were mentioned earlier, and some others. These are not important for now, just understand that there is a lot of effort placed into ensuring cookies are safe from various attacks, such as cross-site scripting (XSS) and cross-site request forgery (CSRF).
 
-Authentication, in the way that we are doing it for this assingment, can technically be done purely with sessions. You may notice ChatGPT suggesting the use of `req.session` to handle all the login/logout logic. Keep in mind, that this is a very manual approach and quickly becomes difficult to manage which is why we use libraries like passport which handle all the session management for us.
+**Note**: Authentication, in the way that we are doing it for this assingment, can technically be done purely with sessions (no passport). You may notice ChatGPT suggesting the use of `req.session` to handle all the login/logout logic. Keep in mind, that this is a very manual approach and quickly becomes difficult to manage which is why we use libraries like passport which handle all the session management for us.
 
 ### passport and passport-local
