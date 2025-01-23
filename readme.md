@@ -7,13 +7,17 @@ This project uses the express-generator to create a template and then includes [
 - User storage with passwords in plain text (JSON files)
 - Route gaurding (endpoint protection)
 
-## What are sessions and how do they enable authentication?
+## Table of contents
 
-At a high level, sessions are a mechanism that allows a web application to "remember" users as they navigate across different pages or make multiple requests. When a user logs in, the server creates a session - a temporary data store tied to the user - and assigns it a unique ID, which is stored in a cookie on the user's browser. On each subsequent request, the browser sends this session ID back to the server, allowing the server to identify the user and maintain their authenticated state without requiring repeated logins. This approach, known as **stateful authentication**, relies on the server to store session data and is a cornerstone of traditional web application security.
-
-In modern development, JSON Web Tokens (JWTs) have gained popularity for **stateless authentication**, where the user’s data is encoded into a token and sent to the client. Unlike sessions, which store data on the server, JWTs do not require server-side storage, making them suitable for distributed systems and APIs. However, sessions remain well-suited for browser-based applications due to their simplicity, built-in support in frameworks, and server-side control over authentication state.
-
-**Note**: While stateful security works well for browser-based applications, it can be less practical for devices that lack cookie support, such as some mobile or IoT devices. In these cases, stateless methods like JWTs are often preferred, as they don't depend on browser-specific mechanisms like cookies.
+- [Project installation](#installation)
+- [What are sessions?](#what-are-sessions-and-how-do-they-enable-authentication)
+- [Extra dependencies](#extra-dependencies)
+  - [express-session](#express-session)
+- [The big picture of passport](#the-big-picture-of-passport)
+- [Implementing authentication](#implementing-authentication)
+  - [Registration and validation](#user-registration-and-validation)
+  - [Login and logout with Passport](#adding-passport-for-login-and-logout)
+  - [Showing login validation errors with middleware](#showing-login-validation-errors-with-middleware)
 
 ## Installation
 
@@ -77,7 +81,15 @@ authDebug('User logged in');
 
 Now you can run the application with `npm start` and see the debug logs.
 
-## Passport-related dependencies
+## What are sessions and how do they enable authentication?
+
+At a high level, sessions are a mechanism that allows a web application to "remember" users as they navigate across different pages or make multiple requests. When a user logs in, the server creates a session - a temporary data store tied to the user - and assigns it a unique ID, which is stored in a cookie on the user's browser. On each subsequent request, the browser sends this session ID back to the server, allowing the server to identify the user and maintain their authenticated state without requiring repeated logins. This approach, known as **stateful authentication**, relies on the server to store session data and is a cornerstone of traditional web application security.
+
+In modern development, JSON Web Tokens (JWTs) have gained popularity for **stateless authentication**, where the user’s data is encoded into a token and sent to the client. Unlike sessions, which store data on the server, JWTs do not require server-side storage, making them suitable for distributed systems and APIs. However, sessions remain well-suited for browser-based applications due to their simplicity, built-in support in frameworks, and server-side control over authentication state.
+
+**Note**: While stateful security works well for browser-based applications, it can be less practical for devices that lack cookie support, such as some mobile or IoT devices. In these cases, stateless methods like JWTs are often preferred, as they don't depend on browser-specific mechanisms like cookies.
+
+## Extra dependencies
 
 To do what we need to do for this project we need the following dependencies installed:
 
@@ -229,7 +241,7 @@ In this screenshot you can see some of the properties that were mentioned earlie
 
 **Note**: Authentication, in the way that we are doing it for this assingment, can technically be done purely with sessions (no passport). You may notice ChatGPT suggesting the use of `req.session` to handle all the login/logout logic. Keep in mind, that this is a very manual approach and quickly becomes difficult to manage which is why we use libraries like passport which handle all the session management for us.
 
-### passport and passport-local (big picture)
+## The big picture of Passport
 
 Passport's main job is to authenticate requests, and it does this using a design pattern called the **strategy pattern**. In simple terms, a strategy in Passport is like a module that handles a specific type of authentication. For example, one strategy might handle username and password authentication, while another works with Google logins. This modularity makes Passport flexible and adaptable to many authentication scenarios. For our assignment, we’ll use the `LocalStrategy`, which handles authentication using usernames and passwords.
 
@@ -242,7 +254,7 @@ Once a user is authenticated, Passport integrates with `express-session` to mana
 
 Now that we have a conceptual understanding of Passport and how it works with `express-session`, let’s build a login system and see how these concepts are implemented.
 
-## Implementing authentication with Passport
+## Implementing authentication
 
 To implement authentication, we need the following:
 
@@ -394,6 +406,8 @@ function userExists(username) {
 
 Our two failure conditions are catered for and we send error messages back to the view to be shown to the user. We also make use of a helper function that checks our data store (`users.json`) and sees if a user exists with that username (this is meant to be unqiue). We access `users.json` by using the `fs` (file system) module and `path` (`__dirname` tells us where we are in the project so our relative pathing - `../` - works as intended). If anything goes wrong on the server, we use `http-errors` to create a 500 erorr and throw it to the error handling middleware to render `error.ejs` with our error object so the user knows something went wrong.
 
+**Note**: if we throw errors like this in async functions the middleware wont catch it, this is a quirk with node and express. In a later module when we will be accessing data asynchonously, we will revisit it. In short, you need to use `next(err)` and cant just `throw err;`.
+
 Before we add our user to the store, lets see how our `signup` view has changed to accomodate our error messages and username placeholders:
 
 ```html ejs
@@ -492,6 +506,262 @@ At this point, we are ready to integrate passport and log our users in.
 
 ### Adding passport for login and logout
 
+Recall, passports job is to handle user authentication. This means verifying a users credentials using one of its strategies, managing the user session so they can remain logged in, and logging the user out by destroying the session.
+
+Before we can do this, we need to create routes and a view for our login.
+
+```js
+// routes/user.js
+...
+router.get('/login', (req, res) => {
+  res.render('login');
+});
+...
+```
+
+```html ejs
+<!-- views/login.ejs -->
+<h1>Login</h1>
+<form action="/user/login" method="POST">
+  <div>
+      <label for="username">Username:</label>
+      <input type="text" id="username" name="username" required>
+  </div>
+  <div>
+      <label for="password">Password:</label>
+      <input type="password" id="password" name="password" required>
+  </div>
+  <button type="submit">Login</button>
+</form>
+<p>Don't have an account? <a href="/user/signup">Sign up</a></p>
+```
+
+Now that we have that set up, we can configure our applicaiton to use passport:
+
+```js
+// app.js
+...
+const passport = require('passport');
+...
+app.use(passport.initialize());
+app.use(passport.session());
+...
+```
+
+`app.use(passport.initialize());` initializes Passport and adds it as middleware to handle authentication.
+
+`app.use(passport.session());` integrates Passport with `express-session`, allowing user information to be serialized and deserialized into the session store.
 
 
+Once we have configured passport, we can implement it. Recall, passport has three key methods:
 
+- **Verify with Local Strategy** defines how Passport checks the user's credentials (username and password) during login.
+- **Serialize** determines what user data (e.g., `username`) is stored in the session to keep it lightweight.
+- **Deserialize** uses the stored data to fetch the full user details on subsequent requests, making the authenticated user available as `req.user`.
+
+Beginning with our verify method:
+
+```js
+// routes/user.js
+...
+const passport = require('passport');
+const LocalStrategy = require('passport-local').Strategy;
+...
+// Tell passport to use our strategy
+passport.use(new LocalStrategy(
+  // Implement the strategy (verify method)
+  (username, password, done) => {
+    // Logic for verifying the user goes here
+  }
+));
+```
+
+The first thing to notice here is that we’re **defining and registering a strategy** with Passport. Recall, a strategy in Passport is essentially a way to handle a specific type of authentication. In this case, we’re using the `LocalStrategy`, which is designed for username and password authentication.
+
+When we call `passport.use`, we’re telling Passport to use this strategy. The `LocalStrategy` requires us to implement a method called `verify`, which takes three arguments:
+
+- `username`: By default, Passport looks for a field named `username` in the request body. If your app uses a different field name, such as `email`, you can specify this using `usernameField: 'email'`.
+- `password`: Similarly, Passport expects a field named `password`. If you’re using a different name, such as `pw`, you can specify this with `passwordField: 'pw'`.
+- `done`: A callback function provided by Passport. This is what we call once we’ve completed the authentication logic. Depending on the outcome, we call it with either the authenticated user or an error.
+
+The verify method is where all the logic for authenticating a user happens: fetching their details, validating their credentials, and determining whether they can proceed. This structure gives us the flexibility to adapt Passport to the specifics of our app while still handling most of the authentication flow for us.
+
+Let's go implement our `verify` logic:
+
+```js
+// routes/user.js
+...
+passport.use(new LocalStrategy(
+  (username, password, done) => {
+    try {
+      // Fetch users from JSON file
+      const users = JSON.parse(fs.readFileSync(path.join(__dirname, '../data/users.json'), 'utf-8'));
+      // Find the user by their username
+      const user = users.find(u => u.username === username);
+
+      // User not found
+      if (!user) {
+        return done(null, false, { message: 'User not found' });
+      }
+
+      // Incorrect password
+      if (user.password !== password) {
+        return done(null, false, { message: 'Incorrect password' });
+      }
+
+      // Successful authentication
+      return done(null, user);
+    } catch (error) {
+      // Pass error to Passport
+      return done(error);
+    }
+  }
+));
+...
+```
+
+Recall, the `done` callback is how we communicate the outcome of the authentication process back to Passport.
+
+The `done` function takes three parameters. The first is an `error` object, which is used if something goes wrong on the server (e.g., a file read error). The second is the authenticated `user` object, or `false` if authentication fails. The third is an optional `info` object, often used to provide a message explaining why authentication failed. For example, if a user is not found, we would call `done(null, false, { message: 'User not found' })`.
+
+Now that we understand how done works, let’s look at how the `verify` method uses it. The first step is to check if the user exists. This is done by fetching the list of users from our JSON file and looking for a match based on the provided username. If no match is found, we call `done` with `false` and a `message` explaining the issue.
+
+Next, we check if the password is correct. If it doesn’t match the one stored for the user, we again call `done` with `false` and a `message`. If both checks pass, we call `done(null, user)` to indicate a successful login.
+
+The try-catch block handles any server-side errors, such as a failure to read the JSON file. When such an error occurs, calling `done(error)` ensures Passport handles it gracefully and passes it through the middleware chain.
+
+This logic should feel familiar—it’s very similar to what we implemented for `signup`. The key difference here is how Passport integrates this into its flow. In `signup`, we handled feedback and errors directly in the route handler. With Passport, while the process of passing error messages might feel similar, the real benefit comes from centralizing authentication logic. Instead of writing separate validation logic in every route that requires authentication, Passport allows us to define it once in the strategy. This makes the code more modular and reusable, especially as our app grows and we introduce additional strategies (like OAuth or JWT). Although the initial setup might feel like extra work, Passport’s abstraction reduces repetitive tasks and keeps the authentication process consistent across the app.
+
+We have to add some code to actually pass and access the messages in our login view, we will come back to this - we first want to finish the implementation of passport with `serializeUser` and `deserializeUser`:
+
+```js
+// routes/user.js
+...
+// Store the user's data in the session
+passport.serializeUser((user, done) => {
+  /*
+    This method is called once, after successful authentication in the strategy.
+    It determines what part of the user object to store in the session.
+    
+    For example, in the LocalStrategy, we call done(null, user) after successful authentication.
+    That user object is passed here, and we decide to store only the username 
+    (to keep the session lightweight and we dont have a userId). This data will later be used by 
+    deserializeUser to reconstruct req.user.
+  */
+  done(null, { username: user.username });
+});
+
+// Retrieve the user's data from the session and set it to req.user
+passport.deserializeUser((userData, done) => {
+  /*
+    This method is called on every request that requires authentication.
+    Passport retrieves the data stored in the session (from serializeUser)
+    and passes it to this method.
+
+    Since the session already contains all the data we need (username),
+    we simply return it as req.user. If more details were required, you would 
+    fetch them here (e.g., from a database).
+  */
+  done(null, userData); // req.user will now be { username: 'example' }
+});
+...
+```
+
+Now we have completed everything Passport needs to function. Let's implement our login POST route where we actually need to authenticate the user:
+
+```js
+// routes/user.js
+...
+router.post('/login', passport.authenticate('local', {
+  successReturnToOrRedirect: '/',
+  failureRedirect: '/user/login'
+}));
+...
+```
+
+Let’s break this down since it looks a bit different from what we’re used to. The first thing you’ll notice is that we don’t do anything with `req` or `res` directly. This is because Passport handles all of that for us - that’s what all the setup was for. All we have to do is supply the correct Passport middleware to the route.
+
+Recall that Passport has many strategies that offer different ways to log in, and it keeps track of these with internal labels. By passing the value `'local'` to our authenticate method, we’re telling Passport to use the `LocalStrategy` that we implemented earlier. This highlights the modularity of Passport, where we could define many different strategies and have different login routes to allow users to log in using various methods (e.g., Google, Facebook).
+
+**Note**: While we can add a `(req, res) => {...}` callback to this route, it will only be called after the authentication process is complete and the redirects are handled. This can be useful if you want to perform additional actions (e.g., logging, custom error messages) after authentication succeeds or fails. However, in most cases, the `passport.authenticate` middleware is sufficient to handle the authentication flow.
+
+All we need to supply to Passport is some information about what to do when authentication is successful or unsuccessful. In our case, we redirect to the home page (`/`) on success and back to `/user/login` on failure.
+
+We can edit our `index.js` route and `index.ejs` view to show our logged in user:
+
+
+```js
+// routes/index.js
+var express = require('express');
+var router = express.Router();
+
+/* GET home page. */
+router.get('/', (req, res, next) => {
+  // Pass the user to the view
+  res.render('index', { user: req.user });
+});
+
+module.exports = router;
+```
+
+```html ejs
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Home</title>
+    <link rel='stylesheet' href='/stylesheets/style.css' />
+  </head>
+  <body>
+    <h1>Home page</h1>
+    <% if (user) { %>
+      <p>Welcome, <%= user.username %>!</p>
+      <form action="/user/logout" method="post">
+        <button class="logout" type="submit">Sign out</button>
+      </form>
+    <% } %>
+  </body>
+</html>
+```
+
+Now we can login and see our username on the home page. You'll notice if we fail to login we don't see those messages we configured earlier - we will come back to that. For now, lets finish this off with the implementation of a logout and a way to enforce that routes require authenticated users to access them.
+
+Implementing logout is simple with passport:
+
+```js
+// routes/user.js
+...
+router.post('/logout', (req, res, next) => {
+  req.logout( (err) => {
+    if (err) { 
+      return next(err); 
+    }
+    res.redirect('/user/login');
+  });
+});
+...
+```
+
+The `req.logout` method is provided by Passport and is used to remove the authenticated user from the session.
+
+The method takes an optional callback function that runs after the logout process is complete. If an error occurs during logout, we pass it to the `next(err)` function to handle the error. Otherwise, we redirect the user to the login page (`/user/login`) to indicate that they've been successfully logged out.
+
+The last thing we want to do is create middleware to protect routes that should only be accessed by authenticated users. There is a package to do this called `connect-ensure-login` that we have installed earlier.
+
+In our example, we want to ensure that users are logged in if they try access our home page (`/`) and if they aren't, theyre redirected to login:
+
+```js
+// routes/index.js
+...
+const ensureLoggedIn = require('connect-ensure-login').ensureLoggedIn;
+...
+router.get('/', ensureLoggedIn({ redirectTo: '/user/login' }), (req, res, next) => {
+  res.render('index', { user: req.user });
+});
+...
+```
+
+This dependency works with `express-session` to ensure there is an authenticated user. The placement of `ensureLoggedIn` is key because the route handler `(req, res, next) => {...}` will only be reached if `ensureLoggedIn` verifies that the user is logged in. If the user is not authenticated, `ensureLoggedIn` will automatically redirect them to the login page we specified with `redirectTo`.
+
+Now we have a full login and registration system. The last thing to do is the extra step of showing the user messages when there are login validation issues. For `signup` we implemented this manually with `res.render` which worked for our small example but can quickly become complicated and difficult to manage. For the login we are going to take inspiration from [this](https://github.com/passport/todos-express-password) official passport example and setup middleware to add the messages to `res.locals` for us.
+
+### Showing login validation errors with middleware

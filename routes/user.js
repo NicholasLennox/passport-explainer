@@ -2,7 +2,83 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const createError = require('http-errors');
+const passport = require('passport');
+const LocalStrategy = require('passport-local').Strategy;
 const router = express.Router();
+
+// Tell passport to use our strategy
+passport.use(new LocalStrategy(
+  (username, password, done) => {
+    try {
+      // Fetch users from JSON file
+      const users = JSON.parse(fs.readFileSync(path.join(__dirname, '../data/users.json'), 'utf-8'));
+      const user = users.find(u => u.username === username);
+
+      // User not found
+      if (!user) {
+        return done(null, false, { message: 'User not found' });
+      }
+
+      // Incorrect password
+      if (user.password !== password) {
+        return done(null, false, { message: 'Incorrect password' });
+      }
+
+      // Successful authentication
+      return done(null, user);
+    } catch (error) {
+      // Pass error to Passport
+      return done(error);
+    }
+  }
+));
+
+// Store the user's data in the session
+passport.serializeUser((user, done) => {
+  /*
+    This method is called once, after successful authentication in the strategy.
+    It determines what part of the user object to store in the session.
+    
+    For example, in the LocalStrategy, we call done(null, user) after successful authentication.
+    That user object is passed here, and we decide to store only the username 
+    (to keep the session lightweight and we dont have a userId). This data will later be used by 
+    deserializeUser to reconstruct req.user.
+  */
+  done(null, { username: user.username });
+});
+
+// Retrieve the user's data from the session and set it to req.user
+passport.deserializeUser((userData, done) => {
+  /*
+    This method is called on every request that requires authentication.
+    Passport retrieves the data stored in the session (from serializeUser)
+    and passes it to this method.
+
+    Since the session already contains all the data we need (username),
+    we simply return it as req.user. If more details were required, you would 
+    fetch them here (e.g., from a database).
+  */
+  done(null, userData); // req.user will now be { username: 'example' }
+});
+
+router.get('/login', (req, res) => {
+  res.render('login');
+});
+
+router.post('/login', passport.authenticate('local', {
+  successReturnToOrRedirect: '/',
+  failureRedirect: '/user/login'
+}));
+
+router.post('/logout', (req, res, next) => {
+  req.logout( (err) => {
+    if (err) { 
+      return next(err); 
+    }
+    res.redirect('/user/login');
+  });
+});
+
 
 router.get('/signup', (req, res) => {
   res.render('signup');
@@ -27,7 +103,7 @@ router.post('/signup', (req, res) => {
 
   // Add new user to data store
   addNewUser(username, password);
-  
+
   // Redirect to allow the user to login
   res.redirect('/user/login');
 });
@@ -64,8 +140,6 @@ function addNewUser(username, password) {
   }
 }
 
-router.get('/login', (req, res) => {
-  res.render('login');
-});
+
 
 module.exports = router;
