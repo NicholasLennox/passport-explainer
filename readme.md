@@ -252,7 +252,7 @@ To implement authentication, we need the following:
 - A way to log the current user out.
 - A router to organize and manage the routes for serving the views and handling their submissions.
 
-Most of this does not require passport. Remember, all it does it authenticate an existing user, eveything else we do. If you want to skip user registration and go straight to integrating passport click [here](#adding-passport) or scroll down to the next sub-section. Dont worry if you dont have a way to create users, you can use the existing ones in `users.json`, this next sub-section just helps clarify how the registration process is handled, and how you can pass error messages back to the user if their passwords don't match or they are trying to use an existing username.  
+Most of this does not require passport. Remember, all it does it authenticate an existing user, eveything else we do. If you want to skip user registration and go straight to integrating passport click [here](#adding-passport-for-login-and-logout) or scroll down to the next sub-section. Dont worry if you dont have a way to create users, you can use the existing ones in `users.json`, this next sub-section just helps clarify how the registration process is handled, and how you can pass error messages back to the user if their passwords don't match or they are trying to use an existing username.  
 
 **Note**: These examples will contain no CSS and minimal HTML to keep the focus on authentication.
 
