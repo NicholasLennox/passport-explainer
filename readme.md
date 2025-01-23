@@ -353,10 +353,14 @@ There are two checks we want to do before adding the users to our data store, we
 ...
 const fs = require('fs');
 const path = require('path');
+// We want to tell the user when something goes wrong on the server
+const createError = require('http-errors'); 
 ...
 router.post('/signup', (req, res) => {
+
   // Extract the form data (using destructuring)
   const { username, password, confirm_password } = req.body;
+
   // Check if the passwords match
   if(password != confirm_password) {
     // Re-render signup. Include the username so they dont need to retype it and provide an error message.
@@ -365,7 +369,7 @@ router.post('/signup', (req, res) => {
 
   // Check if the user exists in the data store
   if(userExists(username)) {
-    // Re-render signup. We dont want to return username, since its invalid, so we just return a message
+    // Re-render signup. We dont want to return username, since its invalid, so we just return a message.
     res.render('signup', { message: "User already exists!" });
   }
 
@@ -375,17 +379,20 @@ router.post('/signup', (req, res) => {
 
 function userExists(username) {
   try {
+    // Read existing users
     const users = JSON.parse(fs.readFileSync(path.join(__dirname, '../data/users.json'), 'utf-8'));
+    // Check if the username already exists
     return users.some(user => user.username === username);
   } catch (error) {
     console.error('Error reading or parsing users.json:', error);
-    return false;
+    // Let the user know something went wrong (error handling middleware will catch this)
+    throw createError(500);
   }
 }
 ...
 ```
 
-Our two failure conditions are catered for and we send error messages back to the view to be shown to the user. We also make use of a helper function that checks our data store (`users.json`) and sees if a user exists with that username (this is meant to be unqiue). We access users.json by using the `fs` (file system) module and `path` (`__dirname` tells us where we are in the project so our relative pathing - `../` - works as intended).
+Our two failure conditions are catered for and we send error messages back to the view to be shown to the user. We also make use of a helper function that checks our data store (`users.json`) and sees if a user exists with that username (this is meant to be unqiue). We access `users.json` by using the `fs` (file system) module and `path` (`__dirname` tells us where we are in the project so our relative pathing - `../` - works as intended). If anything goes wrong on the server, we use `http-errors` to create a 500 erorr and throw it to the error handling middleware to render `error.ejs` with our error object so the user knows something went wrong.
 
 Before we add our user to the store, lets see how our `signup` view has changed to accomodate our error messages and username placeholders:
 
@@ -428,7 +435,7 @@ You'll notice we access the variables through `locals`, but never actually set `
 
 When you pass variables to `res.render`, Express automatically adds them to `res.locals`, making them available in your EJS template for the current request response cycle. In your template, if you access a variable via locals (e.g., `<%= locals.message %>`), it will safely return `undefined` if the variable was not set, without causing an error. 
 
-If you try to directly access `message` without passing it (not via locals), the template will throw an error because the variable doesn’t exist in that context This happens when we first render the signup view in our `/signup` get route. Technically, we could just pass empty values like this:
+If you try to directly access `message` without passing it (not via `locals`), the template will throw an error because the variable doesn’t exist in that context - `locals` always exists which is why it behaves differently. This happens when we first render the signup view in our `/signup` get route since we just say `res.render('signup');`. Technically, we could just pass empty values like this:
 
 ```js
 // routes/user.js
@@ -438,7 +445,11 @@ router.get('/signup', (req, res) => {
 });
 ```
 
-But this is a little messy and its useful to understand what `locals` can be used for. Now that we've seen how user error handling can be implemented with messages, its time to finish off this signup route and actually add our user to the data store. Once that is successful we want to redirect to `/users/login` so they can login with their new credentials - this is also where we will implement passport.
+But this is a little messy and its useful to understand what `locals` can be used for - so lets stick to what we did (`res.render('signup');`).
+
+Now that we've seen how user error handling can be implemented with messages, its time to finish off this signup route and actually add our user to the data store. 
+
+Once that is successful we want to redirect to `/users/login` so they can login with their new credentials - this is also where we will implement passport.
 
 ```js
 // routes/user.js
@@ -446,29 +457,36 @@ But this is a little messy and its useful to understand what `locals` can be use
 router.post('/signup', (req, res) => {
   ...
   // Add new user to data store
-  if(addNewUser(username, password)) {
-    // If successful we redirect to login
-    res.redirect('/user/login')
-  }
+  addNewUser(username, password);
+  
+  // Redirect to allow the user to login
+  res.redirect('/user/login');
 });
+
+...
 
 function addNewUser(username, password) {
   try {
+    // We reuse the path to users.json so save it in a variable
     const filePath = path.join(__dirname, '../data/users.json');
-    const users = JSON.parse(fs.readFileSync(filePath, 'utf-8')); // Read existing users
-    const newUser = { username, password }; // Create new user object
-    users.push(newUser); // Add new user to the array
-    fs.writeFileSync(filePath, JSON.stringify(users, null, 2), 'utf-8'); // Write updated users back to the file
-    console.log(`User ${username} added successfully.`);
-    return true;
+    // Read existing users
+    const users = JSON.parse(fs.readFileSync(filePath, 'utf-8')); 
+    // Create new user object (to be stored)
+    const newUser = { username, password }; 
+    // Add new user to the array
+    users.push(newUser); 
+    // Write updated users back to the file
+    fs.writeFileSync(filePath, JSON.stringify(users, null, 2), 'utf-8'); 
   } catch (error) {
     console.error('Error adding new user:', error);
-    return false;
+    // Let the user know something went wrong (error handling middleware will catch this)
+    throw createError(500);
   }
 }
 ```
 
-Now we can register new users through `signup` and have them stored in `users.json`. It is important to note that all server-realed errors are just logged to the console. This unfortunatly leaves the user in the dark, ideally, we use `http-errors` to `createError(500)` and pass it to our error hanlding middleware - so they at least know something went wrong on the server. To do that would require adding more complexity to our route, and the focus here is just user registration and the required validation. We are simplifying the error handling in this demo to make our route logic as clear as possible.
+Now we can register new users through `signup` and have them stored in `users.json`. It is imporant to pay attention to our errors in this section.
+For errors that result from validation (mismatched passwords or using an existing username) are handled differently that actual server errors (cant read, write, or parse `users.json`). For validation errors we want to tell the user what they did wrong via a message passed back to the view. For server erorrs we simply want to let the user know something went wrong and log the details on the server (in a simple way).
 
 At this point, we are ready to integrate passport and log our users in.
 
