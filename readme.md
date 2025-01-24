@@ -765,3 +765,118 @@ This dependency works with `express-session` to ensure there is an authenticated
 Now we have a full login and registration system. The last thing to do is the extra step of showing the user messages when there are login validation issues. For `signup` we implemented this manually with `res.render` which worked for our small example but can quickly become complicated and difficult to manage. For the login we are going to take inspiration from [this](https://github.com/passport/todos-express-password) official passport example and setup middleware to add the messages to `res.locals` for us.
 
 ### Showing login validation errors with middleware
+
+In this approach, we dont want to make any calls like `res.render('login', { message });`, we instead want it to be automatically available in the view via `locals`. Recall, the reason for this is because it becomes difficult to keep track of and manage when we have more complex functionality as it adds extra bloat to our routes. Additionally, our login is handled with passport and there is no explicit calls to render any views. If we look at our route:
+
+```js
+// routes/user.js
+...
+router.post('/login', passport.authenticate('local', {
+  successReturnToOrRedirect: '/',
+  failureRedirect: '/user/login'
+}));
+...
+```
+
+Where could we pass the message? Even worse, how do we get the message, since its encapsulated in our `verify` method, recall:
+
+```js
+// routes/user.js
+passport.use(new LocalStrategy(
+  (username, password, done) => {
+    try {
+      ...
+      // User not found
+      if (!user) {
+        return done(null, false, { message: 'User not found' });
+      }
+
+      // Incorrect password
+      if (user.password !== password) {
+        return done(null, false, { message: 'Incorrect password' });
+      }
+
+      ...
+    }
+    ...
+  }
+));
+```
+
+We would actually have to tap into the callback by doing something similar to the following: `passport.authenticate('local', (err, user, info) => {...})` which would require alot of manaula intervention and redirects. This is clearly a messy way to do it.
+
+Passport knows and caters for this, and allow you to add the info object to `req.session` automatically. Lets see how it enables this:
+
+```js
+// routes/user.js
+...
+router.post('/login', passport.authenticate('local', {
+  successReturnToOrRedirect: '/',
+  failureRedirect: '/user/login',
+  failureMessage: true // Store failure message in req.session.messages
+}));
+...
+```
+
+That is much simpler. Now because we arent explicitly rendering views, to pass these messages on, we need to add it to `res.locals`, we could techincally add it here by including `req, res` but we have already decided against that manual approach. Instead, we are going to add it to any request where `res.session.messages` isnt empty (meaning we have messages).
+
+To do this, we need to create middleware and add it to our express app, the easiest place to do this is in `app.js`:
+
+```js
+// app.js
+...
+// Message middleware
+app.use((req, res, next) => {
+  // Retrieve session messages or default to an empty array
+  const msgs = req.session.messages || [];
+  
+  // Make messages available to all views in the current request cycle
+  res.locals.messages = msgs;
+  
+  // Add a helper flag for conditional rendering in views
+  // The `!!` converts `msgs.length` to a boolean: true if there are messages, false otherwise
+  res.locals.hasMessages = !!msgs.length;
+  
+  // Clear messages from the session after moving them to locals
+  req.session.messages = [];
+  
+  // Proceed to the next middleware
+  next();
+});
+...
+```
+
+**Note**: This can be reused for anything that adds messages to `req.message` (including other passport strategies or your own code).
+
+Now that we have the messages added to `res.locals`, and we are redirecting to `/users/login` when a login fails (when our error messages are added), we can edit login.ejs to fetch these messages and display them:
+
+```html ejs
+<h1>Login</h1>
+<form action="/user/login" method="POST">
+    <div>
+        <label for="username">Username:</label>
+        <input type="text" id="username" name="username" required>
+    </div>
+    <div>
+        <label for="password">Password:</label>
+        <input type="password" id="password" name="password" required>
+    </div>
+    <button type="submit">Login</button>
+</form>
+<p>Don't have an account? <a href="/user/signup">Sign up</a></p>
+<% if (hasMessages) { %>
+    <div>
+        <% messages.forEach( (message) => { %>
+            <p style="color: red;">
+                <%= message %>
+            </p>
+        <% }); %>
+    </div>
+<% } %>
+```
+
+Now when a user's login fails, they will see a message telling them what they did wrong (server errors will still redirect to `error.ejs`).
+
+And thats where we will stop this demo. 
+
+In future modules when we have database access another resource will be made showing how that can be integrated. 

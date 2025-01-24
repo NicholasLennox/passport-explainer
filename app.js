@@ -23,6 +23,25 @@ app.use(
 app.use(passport.initialize());
 app.use(passport.session());
 
+// Message middleware
+app.use((req, res, next) => {
+  // Retrieve session messages or default to an empty array
+  const msgs = req.session.messages || [];
+  
+  // Make messages available to all views in the current request cycle
+  res.locals.messages = msgs;
+  
+  // Add a helper flag for conditional rendering in views
+  // The `!!` converts `msgs.length` to a boolean: true if there are messages, false otherwise
+  res.locals.hasMessages = !!msgs.length;
+  
+  // Clear messages from the session after moving them to locals
+  req.session.messages = [];
+  
+  // Proceed to the next middleware
+  next();
+});
+
 // view engine setup
 app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'ejs');

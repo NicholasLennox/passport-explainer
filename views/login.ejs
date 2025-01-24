@@ -11,3 +11,12 @@
     <button type="submit">Login</button>
 </form>
 <p>Don't have an account? <a href="/user/signup">Sign up</a></p>
+<% if (hasMessages) { %>
+    <div>
+        <% messages.forEach( (message) => { %>
+            <p style="color: red;">
+                <%= message %>
+            </p>
+        <% }); %>
+    </div>
+<% } %>

@@ -67,7 +67,8 @@ router.get('/login', (req, res) => {
 
 router.post('/login', passport.authenticate('local', {
   successReturnToOrRedirect: '/',
-  failureRedirect: '/user/login'
+  failureRedirect: '/user/login',
+  failureMessage: true // Store failure message in req.session.messages
 }));
 
 router.post('/logout', (req, res, next) => {
