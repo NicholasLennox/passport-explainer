@@ -18,6 +18,7 @@ This project uses the express-generator to create a template and then includes [
   - [Registration and validation](#user-registration-and-validation)
   - [Login and logout with Passport](#adding-passport-for-login-and-logout)
   - [Showing login validation errors with middleware](#showing-login-validation-errors-with-middleware)
+- [Key points/summary](#key-points-tldr)
 
 ## Installation
 
@@ -880,3 +881,152 @@ Now when a user's login fails, they will see a message telling them what they di
 And thats where we will stop this demo. 
 
 In future modules when we have database access another resource will be made showing how that can be integrated. 
+
+## Key points (TLDR)
+
+Passport is a library that provides a simple interface to perform authentication. There are many different ways to authenticate users, these are represented as **strategies**. 
+
+Authentication strategies fall into two broad categories, **stateful** (where the server keeps track of whos logged in) and **stateless** (the server keeps no data - data is stored in tokens that are passed around).
+
+In this assignment we are going to simply authenticate a **username and password** and use sessions to store information about who is currently logged in - so that they dont have to re-authenticate everytime they make a request to the server. This means that we use the **LocalStrategy** from passport, and we congifure passport to use sessions. This is the most basic form of authentication we can do - in future modules we will learn about token-based authentication. 
+
+Simply put, sessions allow us to persist data between requests by storing the information we need, the server then creates a cookie with an identifier for that session that the browser sends on every request. The server is then responsible for extracting that session ID from the cookie and then looking up the rest of the session data (in our case who the logged in user is).
+
+Passport does all these things for us, we simply need to implement three methods to configure **how** we want to do these things for our particular use case. Then we can simply use the passport middleware in our routes.
+
+We configure passport in `app.js` in the following way:
+
+```js
+// app.js
+...
+const passport = require('passport'); // Include dependency
+...
+app.use(passport.initialize()); // This sets up passport and allows us to access to add our configurations
+app.use(passport.session()); // Tells passport we want to use sessions
+...
+```
+
+The next thing is to configure our session store as middleware, we use `express-session` to easily do this:
+
+```js
+// app.js
+...
+const session = require('express-session');
+...
+app.use(
+  session({
+    secret: 'yourSecretKey', // Secret for signing the session ID
+    resave: false, // Prevents session being saved back to the store unless modified
+    saveUninitialized: false, // Prevents creating empty sessions for unauthenticated users
+  })
+);
+...
+```
+
+This enables the use of `req.session` in our app, so we can freely add to the session store and track user activity (or anything else) across requests. Recall, we just want to use it to keep track of whos logged in - something passport helps us alot with.
+
+Now we need to tell passport exactly how we want to authenticate our users, how our users should be stored in the session after authentication, and how we want to retrieve our session data (user) on every subsequent (following) request.
+
+We create a route to handle all our login-related routes and views called `user.js` (can also call it `auth.js` - it doesnt really matter) and its in this file we can configure passport. Let's start by looking at how we tell passport to use a username and password:
+
+```js
+// routes/users.js
+...
+const passport = require('passport');
+const LocalStrategy = require('passport-local').Strategy;
+...
+// Tell passport to use our strategy
+passport.use(new LocalStrategy(
+  (username, password, done) => {
+    // Logic of verifying if a user can be authenticated or not
+  })
+);
+```
+
+In this code snippet, we get the strategy we want to use (`local`), and then add it to passport with `.use(...)`. Each strategy has one method called `verify` (this is because they implement something called the ***strategy design pattern*** if you are curious), and for the local strategy it expects three arguements:
+
+- The `username` and `password`, that by default looks for form values with those names - we can customize this (see relevant section for details).
+- A callback method, we're calling `done`, that is called after the user has been authenticated (or not). This is how passport passes information onto the next middleware.
+
+So what happens after a user is authenticated? We need to add them to the session. Then on each subsequent request we need to extract that session ID and go look up the rest of our user object to display in our views. Passport provides two methods `serializeUser` and `deserializeUser` that manages the session for us, and makes our user available in all routes through `req.user`, all we need to do is configure what information we want stored:
+
+```js
+// routes/user.js
+...
+// Store the user's data in the session
+passport.serializeUser((user, done) => {
+  /*
+    This method is called once, after successful authentication in the strategy.
+    It determines what part of the user object to store in the session.
+    
+    For example, in the LocalStrategy, we call done(null, user) after successful authentication.
+    That user object is passed here, and we decide to store only the username 
+    (to keep the session lightweight and we dont have a userId). This data will later be used by 
+    deserializeUser to reconstruct req.user.
+  */
+  done(null, { username: user.username });
+});
+
+// Retrieve the user's data from the session and set it to req.user
+passport.deserializeUser((userData, done) => {
+  /*
+    This method is called on every request that requires authentication.
+    Passport retrieves the data stored in the session (from serializeUser)
+    and passes it to this method.
+
+    Since the session already contains all the data we need (username),
+    we simply return it as req.user. If more details were required, you would 
+    fetch them here (e.g., from a database).
+  */
+  done(null, userData); // req.user will now be { username: 'example' }
+});
+...
+```
+
+Now, we have configured passport to handle authentication for us, its time to use it. When we want to login, we make a post to a `/user/login` endpoint where we need to make use of passport to log them in, then depending if it was successful or not, redirect them. This is where a library like passport shines, since its very simple from this point on:
+
+```js
+// routes/user.js
+...
+router.post('/login', passport.authenticate('local', {
+  successReturnToOrRedirect: '/',
+  failureRedirect: '/user/login'
+}));
+...
+```
+
+What we are doing here is when we get a request to this endpoint, instead of going right into our normal `(req, res)` cycle we instead inject passports middlware and tell it to authenticate using our local stategy. This approach moves all our authentication logic somewhere else so it can be reused and not bloat up our routes. 
+
+Since the user is added to `req.user` we can use it for conditional rendering in our views. For example, in our home page, we want to show the username of whos logged in:
+
+```js
+// routes/index.js
+...
+router.get('/', ensureLoggedIn({ redirectTo: '/user/login' }), (req, res, next) => {
+  res.render('index', { user: req.user }); // Pass user to the view
+});
+```
+
+Dont worry about the `ensureLoggedIn` middleware right now, thats something you can find details on in the relevant section, we instead are focussing on how to pass a user around. Now that we pass the user to the view, we can do some conditional rendering:
+
+```html ejs
+<!-- views/index.ejs -->
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Home</title>
+    <link rel='stylesheet' href='/stylesheets/style.css' />
+  </head>
+  <body>
+    <h1>Home page</h1>
+    <% if (user) { %>
+      <p>Welcome, <%= user.username %>!</p>
+      <form action="/user/logout" method="post">
+        <button class="logout" type="submit">Sign out</button>
+      </form>
+    <% } %>
+  </body>
+</html>
+```
+
+Now we have seen a simple flow on how to configure and use passport to log a user in. For details of `signup` and `logout`, see the relevent sections, but this is how passport works in a nutshell.
